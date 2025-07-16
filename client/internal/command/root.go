@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/darkseear/gophkeeper/client/internal/client"
+	"github.com/darkseear/gophkeeper/client/internal/storage"
 	"github.com/spf13/cobra"
 )
 
@@ -210,7 +211,17 @@ func initClientInContext(cmd *cobra.Command) error {
 		return fmt.Errorf("failed to get bdname flag: %w", err)
 	}
 
-	cli, err := client.NewGophkeeperClient(server, password, bdname)
+	network, err := client.NewNetworkClient(server)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+
+	local, err := storage.NewLocalStorage(bdname)
+	if err != nil {
+		return fmt.Errorf("failed to init storage: %w", err)
+	}
+
+	cli, err := client.NewGophkeeperClient(network, local, password)
 	if err != nil {
 		return fmt.Errorf("failed to create client: %w", err)
 	}

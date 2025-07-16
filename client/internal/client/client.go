@@ -16,24 +16,41 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// GophKeeperClient - структура клиентского приложения.
+// NetworkClient - отвечает за сетевое взаимодействие с сервером.
+type NetworkClient struct {
+	conn       *grpc.ClientConn
+	grpcClient pb.GophkeeperClient
+}
+
+func NewNetworkClient(serverAddress string) (*NetworkClient, error) {
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	conn, err := grpc.Dial(serverAddress, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect: %w", err)
+	}
+	return &NetworkClient{
+		conn:       conn,
+		grpcClient: pb.NewGophkeeperClient(conn),
+	}, nil
+}
+
+// Close - закрываем соединение.
+func (n *NetworkClient) Close() error {
+	return n.conn.Close()
+}
+
+// GophKeeperClient - агрегирует работу с сетью, криптографией и локальным хранилищем.
 type GophKeeperClient struct {
-	conn         *grpc.ClientConn
-	grpcClient   pb.GophkeeperClient
+	network      *NetworkClient
 	localStorage *storage.LocalStorage
 	crypto       *crypto.CryptoService
 	token        string
 	userID       string
 }
 
-// NewGophkeeperClient - экземпляр с инициализацией хранилища и соединения с сервером.
-func NewGophkeeperClient(serverAddress string, masterPassword string, bdname string) (*GophKeeperClient, error) {
-	// Инициализация локального хранилища
-	local, err := storage.NewLocalStorage(bdname)
-	if err != nil {
-		return nil, fmt.Errorf("failed to init storage: %w", err)
-	}
-	// Получаем токен и userID из локальной сессии, если она есть
+// NewGophkeeperClient - экземпляр с инициализацией хранилища, криптографии и сетевого клиента.
+func NewGophkeeperClient(network *NetworkClient, local *storage.LocalStorage, masterPassword string) (*GophKeeperClient, error) {
+
 	token, userID, _, err := local.GetSession()
 	if err == nil && token != "" && userID != "" {
 		log.Println("Session found, using saved token and userID")
@@ -41,18 +58,8 @@ func NewGophkeeperClient(serverAddress string, masterPassword string, bdname str
 		log.Println("Not found")
 	}
 
-	// Настройка соединения
-	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-
-	conn, err := grpc.Dial(serverAddress, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect: %w", err)
-	}
-
 	return &GophKeeperClient{
-		conn:         conn,
-		grpcClient:   pb.NewGophkeeperClient(conn),
+		network:      network,
 		localStorage: local,
 		crypto:       crypto.New(masterPassword),
 		token:        token,
@@ -62,7 +69,7 @@ func NewGophkeeperClient(serverAddress string, masterPassword string, bdname str
 
 // Register - метод регистрации новых юзеров приложения.
 func (c *GophKeeperClient) Register(ctx context.Context, login, password string) error {
-	resp, err := c.grpcClient.Register(ctx, &pb.RegisterRequest{
+	resp, err := c.network.grpcClient.Register(ctx, &pb.RegisterRequest{
 		Login:    login,
 		Password: password,
 	})
@@ -76,7 +83,7 @@ func (c *GophKeeperClient) Register(ctx context.Context, login, password string)
 
 // Login - метод авторизации юзеров.
 func (c *GophKeeperClient) Login(ctx context.Context, login, password string) error {
-	resp, err := c.grpcClient.Login(ctx, &pb.LoginRequest{
+	resp, err := c.network.grpcClient.Login(ctx, &pb.LoginRequest{
 		Login:    login,
 		Password: password,
 	})
@@ -148,7 +155,7 @@ func (c *GophKeeperClient) GetSecret(ctx context.Context, secretID string) (*sto
 	}
 
 	// Если нет локально, запрашиваем с сервера
-	resp, err := c.grpcClient.GetSecret(ctx, &pb.GetSecretRequest{
+	resp, err := c.network.grpcClient.GetSecret(ctx, &pb.GetSecretRequest{
 		Token:    c.token,
 		SecretId: secretID,
 	})
@@ -201,7 +208,7 @@ func (c *GophKeeperClient) Sync(ctx context.Context) error {
 	}
 
 	// Выполняем синхронизацию
-	resp, err := c.grpcClient.Sync(ctx, &pb.SyncRequest{
+	resp, err := c.network.grpcClient.Sync(ctx, &pb.SyncRequest{
 		Token:        c.token,
 		LocalSecrets: pbSecrets,
 	})
@@ -245,7 +252,7 @@ func (c *GophKeeperClient) Close() error {
 	if err := c.localStorage.Close(); err != nil {
 		log.Printf("Failed to close storage: %v", err)
 	}
-	return c.conn.Close()
+	return c.network.conn.Close()
 }
 
 // generateID - вспомогательная функция генерации ID для секретов.
