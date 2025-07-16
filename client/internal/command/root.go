@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -14,6 +15,9 @@ func NewRootCmd(version, buildDate string) *cobra.Command {
 		Use:     "gophkeeper",
 		Short:   "Secure password manager",
 		Version: fmt.Sprintf("%s (built at %s)", version, buildDate),
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return initClientInContext(cmd)
+		},
 	}
 
 	// Добавляем флаги
@@ -189,24 +193,40 @@ func newGetCmd() *cobra.Command {
 	return getCmd
 }
 
-// getClient - Вспомогательная функция для получения клиента.
-func getClient(cmd *cobra.Command) (*client.GophKeeperClient, error) {
-	serverAddr, err := cmd.Flags().GetString("server")
+// initClientInContext - создает клиента и сохраняет его в контекст команды.
+// Используйте перед запуском команд, требующих клиента.
+
+func initClientInContext(cmd *cobra.Command) error {
+	server, err := cmd.Flags().GetString("server")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get server address: %v", err)
+		return fmt.Errorf("failed to get server flag: %w", err)
+	}
+	password, err := cmd.Flags().GetString("password")
+	if err != nil {
+		return fmt.Errorf("failed to get password flag: %w", err)
 	}
 	bdname, err := cmd.Flags().GetString("bdname")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bdname: %v", err)
+		return fmt.Errorf("failed to get bdname flag: %w", err)
 	}
-	masterPass, err := cmd.Flags().GetString("password")
+
+	cli, err := client.NewGophkeeperClient(server, password, bdname)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get master password: %v", err)
+		return fmt.Errorf("failed to create client: %w", err)
 	}
 
-	if masterPass == "" {
-		return nil, fmt.Errorf("master password is required")
-	}
+	ctx := cmd.Context()
+	ctx = context.WithValue(ctx, "gophkeeper_client", cli)
+	cmd.SetContext(ctx)
+	return nil
+}
 
-	return client.NewGophkeeperClient(serverAddr, masterPass, bdname)
+// getClient - Вспомогательная функция для получения клиента из контекста.
+func getClient(cmd *cobra.Command) (*client.GophKeeperClient, error) {
+	ctx := cmd.Context()
+	cli, ok := ctx.Value("gophkeeper_client").(*client.GophKeeperClient)
+	if !ok || cli == nil {
+		return nil, fmt.Errorf("client not found in context")
+	}
+	return cli, nil
 }
