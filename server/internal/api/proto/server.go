@@ -2,11 +2,9 @@ package proto
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
 	"errors"
+	"log"
 	"time"
 
 	pb "github.com/darkseear/gophkeeper/proto"
@@ -17,6 +15,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -25,35 +24,34 @@ import (
 // GophkeeperGRPCServer - структура grpc сервера.
 type GophkeeperGRPCServer struct {
 	pb.UnimplementedGophkeeperServer
-	storage.StorageInterface
-	cfg *config.Config
+	store storage.StorageInterface
+	cfg   *config.Config
 }
 
 // NewGophkeeperGRPCServer - экземпляр сервера.
-func NewGophkeeperGRPCServer(stor *storage.Store, cfg *config.Config) *GophkeeperGRPCServer {
+func NewGophkeeperGRPCServer(stor storage.StorageInterface, cfg *config.Config) *GophkeeperGRPCServer {
 	return &GophkeeperGRPCServer{
-		cfg: cfg,
+		cfg:   cfg,
+		store: stor,
 	}
 }
 
 // Register - метод регистрации нового пользователя .
 func (s *GophkeeperGRPCServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
 	// Проверка существования пользователя
-	if _, err := s.GetUserByLogin(ctx, req.Login); err == nil {
+	if _, err := s.store.GetUserByLogin(ctx, req.Login); err == nil {
 		return nil, status.Error(codes.AlreadyExists, "user already exists")
 	}
 
-	// Генерация соли и хеша пароля
-	salt := uuid.New().String()
-	hash := hashPassword(req.Password, salt)
+	// Генерация хеша пароля (соль не нужна)
+	hash := hashPassword(req.Password)
 
 	// Создание пользователя
 	user := model.User{
 		Login:        req.Login,
 		PasswordHash: hash,
-		Salt:         salt,
 	}
-	if err := s.CreateUser(ctx, &user); err != nil {
+	if err := s.store.CreateUser(ctx, &user); err != nil {
 		return nil, status.Error(codes.Internal, "failed to create user")
 	}
 
@@ -63,7 +61,7 @@ func (s *GophkeeperGRPCServer) Register(ctx context.Context, req *pb.RegisterReq
 // Login - метод авторизации пользователей.
 func (s *GophkeeperGRPCServer) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
 	// Получение пользователя
-	user, err := s.GetUserByLogin(ctx, req.Login)
+	user, err := s.store.GetUserByLogin(ctx, req.Login)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, status.Error(codes.NotFound, "user not found")
 	}
@@ -72,7 +70,8 @@ func (s *GophkeeperGRPCServer) Login(ctx context.Context, req *pb.LoginRequest) 
 	}
 
 	// Проверка пароля
-	if hashPassword(req.Password, user.Salt) != user.PasswordHash {
+
+	if err := compareHash(user.PasswordHash, req.Password); err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid password")
 	}
 
@@ -107,7 +106,7 @@ func (s *GophkeeperGRPCServer) Sync(ctx context.Context, req *pb.SyncRequest) (*
 	}
 
 	// Разрешение конфликтов
-	serverSecrets, err := s.GetSecrets(ctx, uid)
+	serverSecrets, err := s.store.GetSecrets(ctx, uid)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to get secrets")
 	}
@@ -139,13 +138,13 @@ func (s *GophkeeperGRPCServer) Sync(ctx context.Context, req *pb.SyncRequest) (*
 			Data:     local.Data,
 			Version:  local.Version,
 		}
-		if err := s.UpsertSecret(ctx, &secret); err != nil {
+		if err := s.store.UpsertSecret(ctx, &secret); err != nil {
 			logger.Log.Error("Failed to upsert secret", zap.Error(err))
 		}
 	}
 
 	// Возврат актуальных данных
-	updatedSecrets, err := s.GetSecrets(ctx, uid)
+	updatedSecrets, err := s.store.GetSecrets(ctx, uid)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to get updated secrets")
 	}
@@ -176,7 +175,7 @@ func (s *GophkeeperGRPCServer) GetSecret(ctx context.Context, req *pb.GetSecretR
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid user ID")
 	}
-	secret, err := s.GetSecretById(ctx, uid, req.SecretId)
+	secret, err := s.store.GetSecretById(ctx, uid, req.SecretId)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, "secret not found")
 	}
@@ -193,11 +192,20 @@ func (s *GophkeeperGRPCServer) GetSecret(ctx context.Context, req *pb.GetSecretR
 	}, nil
 }
 
-// hashPassword - вспомогательная функция для хеширования пароля.
-func hashPassword(password, salt string) string {
-	h := hmac.New(sha256.New, []byte(salt))
-	h.Write([]byte(password))
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+func hashPassword(password string) string {
+	pass := []byte(password)
+
+	hashedPassword, err := bcrypt.GenerateFromPassword(pass, bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatalf("error hashed password: %w", err)
+	}
+	return string(hashedPassword)
+}
+
+func compareHash(hashed string, password string) error {
+	h := []byte(hashed)
+	err := bcrypt.CompareHashAndPassword(h, []byte(password))
+	return err
 }
 
 // authenticate - вспомогатльная функция для проверки токена авторизации.

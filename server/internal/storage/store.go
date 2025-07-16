@@ -21,16 +21,6 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-// StorageInterface - интерфейс методов хранилища.
-type StorageInterface interface {
-	GetUserByLogin(ctx context.Context, login string) (*model.User, error)
-	CreateUser(ctx context.Context, user *model.User) error
-	GetSecrets(ctx context.Context, userID uuid.UUID) ([]*model.Secrets, error)
-	GetSecretById(ctx context.Context, userID uuid.UUID, secretID string) (*model.Secrets, error)
-	UpsertSecret(ctx context.Context, secret *model.Secrets) error
-	Close() error
-}
-
 // Store - структура хранилища сервера.
 type Store struct {
 	db  *sqlx.DB
