@@ -16,7 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// GophKeeperClient - структура клсентсвокого приложения.
+// GophKeeperClient - структура клиентского приложения.
 type GophKeeperClient struct {
 	conn         *grpc.ClientConn
 	grpcClient   pb.GophkeeperClient
