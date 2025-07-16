@@ -25,22 +25,21 @@ import (
 // GophkeeperGRPCServer - структура grpc сервера.
 type GophkeeperGRPCServer struct {
 	pb.UnimplementedGophkeeperServer
-	Store *storage.Store
-	cfg   *config.Config
+	storage.StorageInterface
+	cfg *config.Config
 }
 
 // NewGophkeeperGRPCServer - экземпляр сервера.
 func NewGophkeeperGRPCServer(stor *storage.Store, cfg *config.Config) *GophkeeperGRPCServer {
 	return &GophkeeperGRPCServer{
-		Store: stor,
-		cfg:   cfg,
+		cfg: cfg,
 	}
 }
 
 // Register - метод регистрации нового пользователя .
 func (s *GophkeeperGRPCServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
 	// Проверка существования пользователя
-	if _, err := s.Store.GetUserByLogin(ctx, req.Login); err == nil {
+	if _, err := s.GetUserByLogin(ctx, req.Login); err == nil {
 		return nil, status.Error(codes.AlreadyExists, "user already exists")
 	}
 
@@ -54,7 +53,7 @@ func (s *GophkeeperGRPCServer) Register(ctx context.Context, req *pb.RegisterReq
 		PasswordHash: hash,
 		Salt:         salt,
 	}
-	if err := s.Store.CreateUser(ctx, &user); err != nil {
+	if err := s.CreateUser(ctx, &user); err != nil {
 		return nil, status.Error(codes.Internal, "failed to create user")
 	}
 
@@ -64,7 +63,7 @@ func (s *GophkeeperGRPCServer) Register(ctx context.Context, req *pb.RegisterReq
 // Login - метод авторизации пользователей.
 func (s *GophkeeperGRPCServer) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
 	// Получение пользователя
-	user, err := s.Store.GetUserByLogin(ctx, req.Login)
+	user, err := s.GetUserByLogin(ctx, req.Login)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, status.Error(codes.NotFound, "user not found")
 	}
@@ -108,7 +107,7 @@ func (s *GophkeeperGRPCServer) Sync(ctx context.Context, req *pb.SyncRequest) (*
 	}
 
 	// Разрешение конфликтов
-	serverSecrets, err := s.Store.GetSecrets(ctx, uid)
+	serverSecrets, err := s.GetSecrets(ctx, uid)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to get secrets")
 	}
@@ -140,13 +139,13 @@ func (s *GophkeeperGRPCServer) Sync(ctx context.Context, req *pb.SyncRequest) (*
 			Data:     local.Data,
 			Version:  local.Version,
 		}
-		if err := s.Store.UpsertSecret(ctx, &secret); err != nil {
+		if err := s.UpsertSecret(ctx, &secret); err != nil {
 			logger.Log.Error("Failed to upsert secret", zap.Error(err))
 		}
 	}
 
 	// Возврат актуальных данных
-	updatedSecrets, err := s.Store.GetSecrets(ctx, uid)
+	updatedSecrets, err := s.GetSecrets(ctx, uid)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "failed to get updated secrets")
 	}
@@ -177,7 +176,7 @@ func (s *GophkeeperGRPCServer) GetSecret(ctx context.Context, req *pb.GetSecretR
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid user ID")
 	}
-	secret, err := s.Store.GetSecret(ctx, uid, req.SecretId)
+	secret, err := s.GetSecretById(ctx, uid, req.SecretId)
 	if err != nil {
 		return nil, status.Error(codes.NotFound, "secret not found")
 	}

@@ -26,7 +26,9 @@ type StorageInterface interface {
 	GetUserByLogin(ctx context.Context, login string) (*model.User, error)
 	CreateUser(ctx context.Context, user *model.User) error
 	GetSecrets(ctx context.Context, userID uuid.UUID) ([]*model.Secrets, error)
+	GetSecretById(ctx context.Context, userID uuid.UUID, secretID string) (*model.Secrets, error)
 	UpsertSecret(ctx context.Context, secret *model.Secrets) error
+	Close() error
 }
 
 // Store - структура хранилища сервера.
@@ -175,7 +177,7 @@ func (s *Store) GetSecrets(ctx context.Context, userID uuid.UUID) ([]*model.Secr
 }
 
 // GetSecret - получение конкретного секрета.
-func (s *Store) GetSecret(ctx context.Context, userID uuid.UUID, secretID string) (*model.Secrets, error) {
+func (s *Store) GetSecretById(ctx context.Context, userID uuid.UUID, secretID string) (*model.Secrets, error) {
 	const query = `
 		SELECT id, user_id, type, metadata, data, version, created_at, updated_at 
 		FROM secrets 
