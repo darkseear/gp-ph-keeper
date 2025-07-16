@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/darkseear/gophkeeper/client/internal/comand"
+	"github.com/darkseear/gophkeeper/client/internal/command"
 )
 
 var (
@@ -40,7 +40,7 @@ func main() {
 
 		return
 	}
-	rootCmd := comand.NewRootCmd(version, buildDate)
+	rootCmd := command.NewRootCmd(version, buildDate)
 	// Выполняем команду
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("Error: %v\n", err)
