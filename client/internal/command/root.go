@@ -19,6 +19,7 @@ func NewRootCmd(version, buildDate string) *cobra.Command {
 	// Добавляем флаги
 	rootCmd.PersistentFlags().StringP("server", "s", "localhost:50051", "Server address")
 	rootCmd.PersistentFlags().StringP("password", "p", "master", "Master password")
+	rootCmd.PersistentFlags().StringP("bdname", "b", "gophkeeper.db", "Name local bd")
 
 	// Добавляем подкоманды
 	rootCmd.AddCommand(
@@ -190,12 +191,22 @@ func newGetCmd() *cobra.Command {
 
 // getClient - Вспомогательная функция для получения клиента.
 func getClient(cmd *cobra.Command) (*client.GophKeeperClient, error) {
-	serverAddr, _ := cmd.Flags().GetString("server")
-	masterPass, _ := cmd.Flags().GetString("password")
+	serverAddr, err := cmd.Flags().GetString("server")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get server address: %v", err)
+	}
+	bdname, err := cmd.Flags().GetString("bdname")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bdname: %v", err)
+	}
+	masterPass, err := cmd.Flags().GetString("password")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get master password: %v", err)
+	}
 
 	if masterPass == "" {
 		return nil, fmt.Errorf("master password is required")
 	}
 
-	return client.NewGophkeeperClient(serverAddr, masterPass)
+	return client.NewGophkeeperClient(serverAddr, masterPass, bdname)
 }

@@ -25,8 +25,8 @@ type LocalStorage struct {
 }
 
 // NewLocalStorage - экземпляр с инициализацией бд локального хранилища.
-func NewLocalStorage() (*LocalStorage, error) {
-	db, err := sql.Open("sqlite3", "gophkeeper.db")
+func NewLocalStorage(bdname string) (*LocalStorage, error) {
+	db, err := sql.Open("sqlite3", bdname)
 	if err != nil {
 		return nil, err
 	}

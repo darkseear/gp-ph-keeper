@@ -27,9 +27,9 @@ type GophKeeperClient struct {
 }
 
 // NewGophkeeperClient - экземпляр с инициализацией хранилища и соединения с сервером.
-func NewGophkeeperClient(serverAddress string, masterPassword string) (*GophKeeperClient, error) {
+func NewGophkeeperClient(serverAddress string, masterPassword string, bdname string) (*GophKeeperClient, error) {
 	// Инициализация локального хранилища
-	local, err := storage.NewLocalStorage()
+	local, err := storage.NewLocalStorage(bdname)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init storage: %w", err)
 	}
